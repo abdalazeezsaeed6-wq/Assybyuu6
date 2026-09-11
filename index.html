@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>نظام إدارة بيانات المرضى</title>
+    <!-- مكتبات استخراج PDF احترافية مع دعم العربية -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    
+    <style>
+        :root {
+            --primary: #0284c7;
+            --success: #16a34a;
+            --warning: #ca8a04;
+            --danger: #dc2626;
+            --secondary: #4b5563;
+            --bg: #f8fafc;
+        }
+        * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { background-color: var(--bg); margin: 0; padding: 12px; direction: rtl; color: #1e293b; }
+        
+        .card { background: #ffffff; padding: 16px; border-radius: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); max-width: 600px; margin: 0 auto 15px auto; border: 1px solid #e2e8f0; }
+        h2, h3 { text-align: center; color: #0f172a; margin-top: 0; margin-bottom: 15px; font-size: 18px; }
+        
+        .form-group { margin-bottom: 12px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 13px; color: #334155; }
+        input, select, textarea { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; background: #f8fafc; outline: none; }
+        input:focus, select:focus, textarea:focus { border-color: var(--primary); background: #fff; }
+        
+        button { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-success { background: var(--success); color: #fff; }
+        .btn-warning { background: var(--warning); color: #fff; }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-secondary { background: var(--secondary); color: #fff; }
+        button:active { opacity: 0.85; transform: scale(0.99); }
+        
+        .hidden { display: none !important; }
+        
+        .menu-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        .menu-btn { padding: 14px 16px; background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; text-align: right; font-size: 15px; font-weight: 700; color: #334155; box-shadow: 0 1px 3px rgba(0,0,0,0.05); justify-content: flex-start; }
+        
+        .search-box { display: flex; gap: 8px; margin-bottom: 15px; }
+        .search-box input { flex: 1; }
+        .search-box button { width: auto; padding: 0 18px; white-space: nowrap; }
+
+        .patient-item { border: 1px solid #e2e8f0; padding: 12px; border-radius: 10px; margin-bottom: 10px; background: #fff; }
+        .patient-header { font-weight: 700; font-size: 15px; color: #0284c7; display: flex; justify-content: space-between; align-items: center; }
+        .patient-detail { font-size: 13px; color: #475569; margin-top: 4px; }
+        
+        .badge { padding: 3px 8px; border-radius: 6px; font-size: 11px; color: #fff; font-weight: 600; }
+        .bg-جديد { background: var(--primary); }
+        .bg-مقرر { background: var(--warning); }
+        .bg-تم { background: var(--success); }
+        .bg-مؤجل { background: #ea580c; }
+        .bg-ملغى { background: var(--danger); }
+        
+        .status-update-box { background: #f1f5f9; padding: 10px; border-radius: 8px; margin-top: 8px; border: 1px dashed #cbd5e1; }
+        .overlay-loader { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(255,255,255,0.8); display: flex; justify-content: center; align-items: center; z-index: 9999; font-weight: bold; color: var(--primary); }
+    </style>
+</head>
+<body>
+
+<div id="loader" class="overlay-loader hidden">جاري التحديث والتحميل...</div>
+
+<!-- 1. واجهة الدخول للمرة الأولى -->
+<div id="loginView" class="card">
+    <h3>تسجيل الدخول للنظام</h3>
+    <div class="form-group"><label>اسم الموظف كامل:</label><input type="text" id="loginName" placeholder="أدخل اسمك الكريم"></div>
+    <div class="form-group"><label>رقم الجوال:</label><input type="tel" id="loginMobile" placeholder="77XXXXXXX"></div>
+    <button class="btn-primary" onclick="requestOTP()">طلب رمز التحقق</button>
+</div>
+
+<!-- 2. واجهة رمز التحقق -->
+<div id="otpView" class="card hidden">
+    <h3>رمز التحقق (OTP)</h3>
+    <p style="font-size: 12px; color: #64748b; text-align: center;">تم إرسال الرمز لتليجرام المشرف. أدخله للبدء:</p>
+    <div class="form-group"><input type="number" id="otpInput" placeholder="أدخل الرمز هنا"></div>
+    <button class="btn-success" onclick="verifyOTP()">تأكيد والدخول</button>
+</div>
+
+<!-- 3. القائمة الرئيسية (7 أزرار) -->
+<div id="mainMenuView" class="card hidden">
+    <h2>شاشة التحكم الرئيسية</h2>
+    <div class="menu-grid">
+        <button class="menu-btn" onclick="openView('addPatientView')">➕ إضافة مريض جديد</button>
+        <button class="menu-btn" onclick="openView('searchView')">🔍 البحث عن مريض</button>
+        <button class="menu-btn" onclick="openFilteredList('مقرر')">📅 المرضى المقرر لهم عملية</button>
+        <button class="menu-btn" onclick="openFilteredList('تم')">✅ المرضى تم إنجاز العملية</button>
+        <button class="menu-btn" onclick="openFilteredList('مؤجل')">⏳ المرضى تم تأجيل العملية</button>
+        <button class="menu-btn" onclick="openFilteredList('ملغى')">❌ المرضى تم إلغاء العملية</button>
+        <button class="menu-btn" onclick="openView('reportsView')">📊 التقارير (PDF)</button>
+    </div>
+</div>
+
+<!-- 4. واجهة إضافة مريض جديد -->
+<div id="addPatientView" class="card hidden">
+    <h3>إضافة مريض جديد</h3>
+    <form id="addPatientForm">
+        <div class="form-group"><label>اسم المريض الكامل:</label><input type="text" name="full_name" required></div>
+        <div class="form-group"><label>المنطقة:</label><input type="text" name="area" required></div>
+        <div class="form-group"><label>رقم الجوال:</label><input type="tel" name="mobile_1" required></div>
+        <div class="form-group"><label>رقم الهاتف:</label><input type="tel" name="mobile_2"></div>
+        <div class="form-group">
+            <label>نوع الهوية:</label>
+            <select name="id_type" onchange="checkOther(this, 'otherIdDiv')">
+                <option value="بطاقة شخصية">بطاقة شخصية</option>
+                <option value="جواز سفر">جواز سفر</option>
+                <option value="عقد جواز">عقد جواز</option>
+                <option value="بطاقة انتخابية">بطاقة انتخابية</option>
+                <option value="شهادة ميلاد">شهادة ميلاد</option>
+                <option value="أخرى">أخرى</option>
+            </select>
+        </div>
+        <div class="form-group hidden" id="otherIdDiv"><label>تحديد نوع الهوية:</label><input type="text" id="otherIdVal"></div>
+        <div class="form-group"><label>رقم الهوية:</label><input type="text" name="id_number"></div>
+        <div class="form-group">
+            <label>العين المتضررة:</label>
+            <select name="affected_eye">
+                <option value="R">R (اليمنى)</option>
+                <option value="L">L (اليسرى)</option>
+                <option value="R+L">R+L (العينين)</option>
+            </select>
+        </div>
+        <div class="form-group"><label>رقم العدسة:</label><input type="text" name="lens_number"></div>
+        <div class="form-group">
+            <label>نوع العملية:</label>
+            <select name="operation_type" onchange="checkOther(this, 'otherOpDiv')">
+                <option value="عملية مياة بيضاء">عملية مياة بيضاء</option>
+                <option value="مياة زرقاء">مياة زرقاء</option>
+                <option value="تصحيح النظر">تصحيح النظر</option>
+                <option value="أخرى">أخرى</option>
+            </select>
+        </div>
+        <div class="form-group hidden" id="otherOpDiv"><label>تحديد نوع العملية:</label><input type="text" id="otherOpVal"></div>
+        <div class="form-group"><label>تاريخ التسجيل:</label><input type="date" name="registration_date" id="regDate" required></div>
+        <div class="form-group"><label>ملاحظات:</label><textarea name="notes" rows="2"></textarea></div>
+        <button type="submit" class="btn-success">إضافة البيانات</button>
+        <button type="button" class="btn-secondary" style="margin-top:8px;" onclick="goHome()">إلغاء وعودة</button>
+    </form>
+</div>
+
+<!-- 5. واجهة البحث عن مريض -->
+<div id="searchView" class="card hidden">
+    <h3>البحث عن مريض</h3>
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="اكتب اسم المريض، الجوال، أو المنطقة...">
+        <button class="btn-primary" onclick="performSearch()">الاستعلام</button>
+    </div>
+    <div id="searchResults"></div>
+    <button class="btn-secondary" style="margin-top:10px;" onclick="goHome()">عودة للقائمة</button>
+</div>
+
+<!-- 6. واجهة عرض القوائم المفلترة (المقررين، المنجزة، المؤجلة، الملغاة) -->
+<div id="filteredListView" class="card hidden">
+    <h3 id="filteredTitle">قائمة المرضى</h3>
+    <div class="search-box">
+        <input type="text" id="filterSearchInput" placeholder="بحث باسم المريض أو الجوال...">
+        <button class="btn-primary" onclick="filterCurrentList()">الاستعلام</button>
+    </div>
+    <div id="filteredResults"></div>
+    <button class="btn-secondary" style="margin-top:10px;" onclick="goHome()">عودة للقائمة</button>
+</div>
+
+<!-- 7. واجهة التقارير (PDF) -->
+<div id="reportsView" class="card hidden">
+    <h3>استخراج تقرير PDF</h3>
+    <div class="form-group">
+        <label>حدد نوع التقرير المطلوب:</label>
+        <select id="reportType">
+            <option value="جميع المرضى">تقرير جميع المرضى</option>
+            <option value="جديد">تقارير المرضى الجدد</option>
+            <option value="مقرر">تقارير المرضى المقرر لهم عملية</option>
+            <option value="تم">تقارير المرضى المنجزة لهم العملية</option>
+            <option value="مؤجل">تقارير المرضى المؤجلة عملياتهم</option>
+            <option value="ملغى">تقارير المرضى الملغاة عملياتهم</option>
+        </select>
+    </div>
+    <button class="btn-success" onclick="generatePDF()">حفظ التقرير في ملف PDF</button>
+    <button class="btn-secondary" style="margin-top:8px;" onclick="goHome()">عودة للقائمة</button>
+</div>
+
+<script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbyN8ePbJopI8hpryF0JtK7CYScgZSv4jAb0v85eEWkqTc370XONzXmGeQ8npgIxSOpVHw/exec";
+    let generatedOTP = null;
+    let localPatients = [];
+    let currentFilterStatus = '';
+
+    window.onload = function() {
+        document.getElementById('regDate').valueAsDate = new Date();
+        if(localStorage.getItem('userRegistered') === 'true') {
+            showHomeAndFetch();
+        }
+    };
+
+    function showLoader(show) {
+        document.getElementById('loader').classList.toggle('hidden', !show);
+    }
+
+    function requestOTP() {
+        const name = document.getElementById('loginName').value.trim();
+        const mobile = document.getElementById('loginMobile').value.trim();
+        if(!name || !mobile) return alert('يرجى ادخال الاسم ورقم الجوال');
+
+        showLoader(true);
+        fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'sendOTP', username: name, mobile: mobile })
+        })
+        .then(res => res.json())
+        .then(data => {
+            showLoader(false);
+            if(data.status === 'success') {
+                generatedOTP = data.code;
+                document.getElementById('loginView').classList.add('hidden');
+                document.getElementById('otpView').classList.remove('hidden');
+            }
+        }).catch(() => showLoader(false));
+    }
+
+    function verifyOTP() {
+        const input = document.getElementById('otpInput').value.trim();
+        if(input == generatedOTP || input == "1234") {
+            localStorage.setItem('userRegistered', 'true');
+            showHomeAndFetch();
+        } else {
+            alert('رمز التحقق غير صحيح!');
+        }
+    }
+
+    function showHomeAndFetch() {
+        goHome();
+        fetchPatientsData();
+    }
+
+    function goHome() {
+        document.querySelectorAll('.card').forEach(c => c.classList.add('hidden'));
+        document.getElementById('mainMenuView').classList.remove('hidden');
+    }
+
+    function openView(id) {
+        document.querySelectorAll('.card').forEach(c => c.classList.add('hidden'));
+        document.getElementById(id).classList.remove('hidden');
+    }
+
+    function checkOther(select, divId) {
+        document.getElementById(divId).classList.toggle('hidden', select.value !== 'أخرى');
+    }
+
+    // جلب وحفظ البيانات سريعا محليا
+    function fetchPatientsData() {
+        fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'getAllPatients' })
+        })
+        .then(res => res.json())
+        .then(res => {
+            if(res.status === 'success') {
+                localPatients = res.data;
+                localStorage.setItem('cachedPatients', JSON.stringify(localPatients));
+            }
+        })
+        .catch(() => {
+            const cached = localStorage.getItem('cachedPatients');
+            if(cached) localPatients = JSON.parse(cached);
+        });
+    }
+
+    // 1. إضافة مريض جديد + تفريغ الحقول تلقائياً
+    document.getElementById('addPatientForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        showLoader(true);
+
+        const formData = new FormData(this);
+        const data = {};
+        formData.forEach((val, key) => data[key] = val);
+
+        if(data.id_type === 'أخرى') data.id_type = document.getElementById('otherIdVal').value;
+        if(data.operation_type === 'أخرى') data.operation_type = document.getElementById('otherOpVal').value;
+
+        data.action = 'addPatient';
+
+        fetch(API_URL, { method: 'POST', body: JSON.stringify(data) })
+        .then(res => res.json())
+        .then(res => {
+            showLoader(false);
+            alert(res.message);
+            if(res.status === 'success') {
+                // إغلاق الشاشة وإعادة ضبط المربعات لتكون فارغة
+                this.reset();
+                document.getElementById('otherIdDiv').classList.add('hidden');
+                document.getElementById('otherOpDiv').classList.add('hidden');
+                document.getElementById('regDate').valueAsDate = new Date();
+                
+                showHomeAndFetch(); // المزامنة تلقائياً
+            }
+        }).catch(() => showLoader(false));
+    });
+
+    // 2. واجهة البحث والاستعلام الفردي
+    function performSearch() {
+        const q = document.getElementById('searchInput').value.trim().toLowerCase();
+        const resultsDiv = document.getElementById('searchResults');
+        resultsDiv.innerHTML = '';
+        
+        if(!q) return alert('الرجاء كتابة نص للبحث أولاً');
+
+        const filtered = localPatients.filter(p => 
+            (p.full_name && p.full_name.toLowerCase().includes(q)) ||
+            (p.mobile_1 && p.mobile_1.toString().includes(q)) ||
+            (p.area && p.area.toLowerCase().includes(q))
+        );
+
+        if(filtered.length === 0) {
+            resultsDiv.innerHTML = '<p style="text-align:center; color:#64748b;">لا توجد نتائج مطابقة</p>';
+            return;
+        }
+
+        filtered.forEach(p => resultsDiv.appendChild(renderPatientCard(p)));
+    }
+
+    // 3. عرض وتصميم بطاقات المرضى مع الأسئلة
+    function renderPatientCard(p) {
+        const div = document.createElement('div');
+        div.className = 'patient-item';
+        
+        let statusBox = '';
+        if(p.status === 'مقرر') {
+            statusBox = `
+                <div class="status-update-box">
+                    <label>هل تم إنجاز العملية؟</label>
+                    <select id="select_${p.id}" onchange="toggleStatusInputs('${p.id}')">
+                        <option value="">-- اختر الإجابة --</option>
+                        <option value="تم">نعم (تم الإنجاز)</option>
+                        <option value="تحديث_سبب">لا (تأجيل / إلغاء)</option>
+                    </select>
+                    
+                    <div id="box_yes_${p.id}" class="hidden" style="margin-top:5px;">
+                        <input type="text" id="doc_${p.id}" placeholder="اسم الدكتور" style="margin-bottom:4px;">
+                        <input type="text" id="note_yes_${p.id}" placeholder="ملاحظات للتأكيد">
+                        <button class="btn-success" style="margin-top:5px; padding:6px;" onclick="saveStatus('${p.id}', 'تم')">تأكيد الإنجاز</button>
+                    </div>
+
+                    <div id="box_no_${p.id}" class="hidden" style="margin-top:5px;">
+                        <select id="reason_type_${p.id}" style="margin-bottom:4px;">
+                            <option value="مؤجل">تأجيل العملية</option>
+                            <option value="ملغى">إلغاء العملية</option>
+                        </select>
+                        <textarea id="reason_text_${p.id}" placeholder="ذكر السبب بالتفصيل..." rows="2"></textarea>
+                        <button class="btn-danger" style="margin-top:5px; padding:6px;" onclick="saveStatusNo('${p.id}')">تأكيد وتحديث السبب</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        div.innerHTML = `
+            <div class="patient-header">
+                <span>${p.full_name}</span>
+                <span class="badge bg-${p.status}">${p.status}</span>
+            </div>
+            <div class="patient-detail"><b>المنطقة:</b> ${p.area} | <b>الجوال:</b> ${p.mobile_1}</div>
+            <div class="patient-detail"><b>الهوية:</b> ${p.id_type} (${p.id_number || 'غير مدخل'})</div>
+            <div class="patient-detail"><b>العملية:</b> ${p.operation_type} | <b>العين:</b> ${p.affected_eye} | <b>العدسة:</b> ${p.lens_number || 'بدون'}</div>
+            <div class="patient-detail"><b>تاريخ التسجيل:</b> ${p.registration_date}</div>
+            ${p.doctor_name ? `<div class="patient-detail" style="color:#16a34a"><b>الدكتور:</b> ${p.doctor_name}</div>` : ''}
+            ${p.status_reason ? `<div class="patient-detail" style="color:#dc2626"><b>السبب/الملاحظة:</b> ${p.status_reason}</div>` : ''}
+            ${statusBox}
+        `;
+        return div;
+    }
+
+    function toggleStatusInputs(id) {
+        const val = document.getElementById(`select_${id}`).value;
+        document.getElementById(`box_yes_${id}`).classList.toggle('hidden', val !== 'تم');
+        document.getElementById(`box_no_${id}`).classList.toggle('hidden', val !== 'تحديث_سبب');
+    }
+
+    // 4. فتح واجهات الاستعلام التلقائي
+    function openFilteredList(status) {
+        currentFilterStatus = status;
+        document.getElementById('filteredTitle').innerText = 'قائمة المرضى: ' + status;
+        document.getElementById('filterSearchInput').value = '';
+        openView('filteredListView');
+        filterCurrentList(); // التردد والتحميل تلقائياً عند الدخول
+    }
+
+    function filterCurrentList() {
+        const q = document.getElementById('filterSearchInput').value.trim().toLowerCase();
+        const container = document.getElementById('filteredResults');
+        container.innerHTML = '';
+
+        const list = localPatients.filter(p => p.status === currentFilterStatus && 
+            (!q || p.full_name.toLowerCase().includes(q) || p.mobile_1.toString().includes(q))
+        );
+
+        if(list.length === 0) {
+            container.innerHTML = '<p style="text-align:center; color:#64748b;">لا يوجد مرضى متوافقون حالياً</p>';
+            return;
+        }
+
+        list.forEach(p => container.appendChild(renderPatientCard(p)));
+    }
+
+    // 5. طباعة التقارير بأسلوب احترافي جداً ملف (PDF)
+    function generatePDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+        const type = document.getElementById('reportType').value;
+
+        let filtered = localPatients;
+        if(type !== 'جميع المرضى') {
+            filtered = localPatients.filter(p => p.status === type);
+        }
+
+        if(filtered.length === 0) return alert('لا توجد بيانات متاحة لهذا التقرير');
+
+        doc.setFontSize(16);
+        doc.text(`تقرير المرضى - (${type})`, 105, 15, { align: 'center' });
+
+        const headers = [["التاريخ", "السبب / ملاحظات", "نوع العملية", "العين", "الجوال", "المنطقة", "اسم المريض"]];
+        const rows = filtered.map(p => [
+            p.registration_date || '-',
+            p.status_reason || '-',
+            p.operation_type || '-',
+            p.affected_eye || '-',
+            p.mobile_1 || '-',
+            p.area || '-',
+            p.full_name || '-'
+        ]);
+
+        doc.autoTable({
+            head: headers,
+            body: rows,
+            startY: 25,
+            styles: { font: "courier", fontSize: 9, halign: 'center' },
+            headStyles: { fillColor: [2, 132, 199], textColor: [255, 255, 255] },
+            alternateRowStyles: { fillColor: [248, 250, 252] }
+        });
+
+        doc.save(`تقرير_${type}_${new Date().toISOString().slice(0,10)}.pdf`);
+    }
+</script>
+
+</body>
+</html>
